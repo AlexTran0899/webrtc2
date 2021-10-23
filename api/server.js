@@ -1,29 +1,33 @@
-const express = require('express')
-const helmet = require('helmet')
-const cors = require('cors')
-const db = require('./data/db-config')
+const app = require('express')();
+const helmet = require('helmet');
+const cors = require('cors');
+const server = require('http').createServer(app);
 
-function getAllUsers() { return db('users') }
-
-async function insertUser(user) {
-  // WITH POSTGRES WE CAN PASS A "RETURNING ARRAY" AS 2ND ARGUMENT TO knex.insert/update
-  // AND OBTAIN WHATEVER COLUMNS WE NEED FROM THE NEWLY CREATED/UPDATED RECORD
-  // UNLIKE SQLITE WHICH FORCES US DO DO A 2ND DB CALL
-  const [newUserObject] = await db('users').insert(user, ['user_id', 'username', 'password'])
-  return newUserObject // { user_id: 7, username: 'foo', password: 'xxxxxxx' }
-}
-
-const server = express()
-server.use(express.json())
-server.use(helmet())
-server.use(cors())
-
-server.get('/api/users', async (req, res) => {
-  res.json(await getAllUsers())
+const io = require('socket.io')(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 })
 
-server.post('/api/users', async (req, res) => {
-  res.status(201).json(await insertUser(req.body))
+app.use(helmet())
+app.use(cors())
+
+app.get('/', (req, res) => {
+  res.send("server is running")
 })
 
-module.exports = server
+io.on('connection', (socket) => {
+  socket.emit('me', socket.id)
+  socket.on('disconnect', () => socket.broadcast.emit('callended'))
+  socket.on('calluser', ({ userToCall, signalData, from, name }) => {
+    io.to(userToCall).emit("calluser", { signal: signalData, from, name })
+  })
+  socket.on('answercall', (data) => {
+    io.to(data.to).emit("callaccepted", data.signal)
+  })
+})
+
+
+
+module.exports = app
